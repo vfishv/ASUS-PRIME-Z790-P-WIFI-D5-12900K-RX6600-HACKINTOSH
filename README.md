@@ -1,5 +1,11 @@
 # ASUS-PRIME-Z790-P-WIFI-D5-12900K-RX6600-HACKINTOSH
 
+
+
+OpenCore 1.0.1
+
+
+
 Sequoia
 
 
