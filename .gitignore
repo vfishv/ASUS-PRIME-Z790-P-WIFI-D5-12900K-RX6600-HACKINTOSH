@@ -1,0 +1,10 @@
+# macOS 目录元数据
+.DS_Store
+._*
+
+# OpenCore 调试日志（Debug → Target 含 0x40 时会写到 EFI 根目录）
+opencore-*.txt
+
+# 编辑器 / 备份
+*.bak
+*~
