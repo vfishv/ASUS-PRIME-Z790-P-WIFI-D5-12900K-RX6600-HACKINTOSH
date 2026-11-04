@@ -77,6 +77,16 @@ EFI/
 | `SSDT-GPRW.aml` | 配合 GPRW→XPRW 改名，修复睡眠唤醒（改名补丁当前未启用，见「已知情况」） |
 | `FixShutdown-USB-SSDT.aml` | 修复关机后 USB 供电未断的问题 |
 
+> **曾尝试并已撤销（2026-11-05）**：为排查开机黑屏，一度新增 `SSDT-GPU-SLOT1.aml`，对 `\_SB.PC00.PEG1.PEGP` 定义 `_STA`（`_OSI("Darwin")` 为真时返回 `0`），试图在 macOS 下隐去 Slot-1 那张 Windows 专用显卡。实测结论如下，**同类尝试不必重做**：
+>
+> | 层面 | `_STA = 0` 的实际效果 |
+> | --- | --- |
+> | ACPI 命名空间 | 生效：macOS 不创建对应的 `IOACPIPlatformDevice` |
+> | PCI 枚举 | **无效**。`AppleACPIPCI` 扫总线创建 `IOPCIDevice`，完全不读 ACPI `_STA` |
+> | `system_profiler` | **仍列出该卡**（它遍历 PCI 设备），Slot-1 那项 `No Kext Loaded` 不会消失 |
+>
+> ⇒ macOS 侧**没有任何手段**能阻止 PCI 枚举，只有 BIOS 关闭插槽或物理拔卡才行。该 SSDT 对黑屏无实际帮助，已连同 `ACPI → Add` 条目一并移除（`ACPI/` 恢复为 7 个）。
+
 ## Kexts（19 个启用）
 
 **核心**
@@ -293,12 +303,14 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 | --- | --- |
 | dGPU | RX 6600（Navi 23，`1002:73ff`），Slot-2，Metal 3，8 GB |
 | iGPU | `8086:4660`（UHD 770）存在但 `No Kext Loaded`，macOS 15 无驱动，属正常 |
-| **未知第二块 VGA** | **`4c54:5006`（class `0x030000`，Slot-1 x16，另带音频 function `4c54:5010`），`No Kext Loaded`** |
+| **未知第二块 VGA** | **`4c54:5006`（class `0x030000`，Slot-1 `PCIEX16_1` x16，另带音频 function `4c54:5010`），`No Kext Loaded`**；即用户 Windows 专用的那张显卡，ACPI 位置 `\_SB.PC00.PEG1.PEGP` |
 | HD270 | 厂商 **HKC**、产品码 `0x2700`、**2015 年**、EDID 1.4、60×34 cm；原生 DTD **2560×1440@59.97Hz**（pclk 241.5 MHz，htotal 2720 × vtotal 1481）；系统按 **30-bit ARGB2101010** 输出 |
 | DELL U2725QE | 厂商 DEL、产品码 `0x4362`、**2026 年**、EDID 1.4；当前 3840×2160@60Hz（界面 HiDPI 缩放到 1920×1080）；30-bit |
 | display pipe | Navi 23 共 **4 条**；双屏时被占满，但单屏也犯病 ⇒ 非瓶颈因素 |
 
-> 那台 `4c54:5006` 是独立于 RX 6600 与 iGPU 的第三个 VGA 设备，`system_profiler` 里显示为 Slot-1 的 `No Kext Loaded`。它没有驱动、不输出画面，但**会参与 macOS 的显示设备枚举**；若某次开机它被选为 primary display，就可能出现「系统在跑、屏上没画面」。这条属低概率怀疑项，需在下次黑屏时用 `ioreg` 复核。
+> 那台 `4c54:5006` 是独立于 RX 6600 与 iGPU 的第三个 VGA 设备，`system_profiler` 里显示为 Slot-1 的 `No Kext Loaded`。它没有驱动、不输出画面。
+>
+> 关键在于**它和 RX 6600 分处两个独立的 PCIe 端口**：该卡挂在 **`PEG1@1`** 下（`GFX0@0` + `HDAU@0,1`），RX 6600 在 **`PEG0@6`** 下（`PEGP@0 → pci-bridge → GFX1@0`）。两者互不影响，因此这张卡**阻断不了 RX 6600 的枚举**。曾想用 ACPI `_STA` 在 macOS 侧隐去它，实测无效，已撤销（见「ACPI」节注记）。
 
 **根因假设**（按可能性排序，随观测进展调整）：
 
@@ -306,7 +318,7 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 2. **HD270 自身的 EDID / 时序 / 色深**。HKC 2015 年 QHD 屏，EDID 1.4 只提供一条 DTD（2560×1440@59.97，pclk 241.5 MHz），而系统按 **30-bit ARGB2101010** 输出——30bpp 比 24bpp 多 25% 链路带宽，若 DP 链路协商落在 HBR（8.64 Gbps 有效）而非 HBR2，余量会明显变薄。2015 年的低价屏被误判为 10-bit 是常见情况。
 3. **`Booter → Quirks → DevirtualiseMmio = true` 配空的 `MmioWhitelist`**。OpenCore 1.0.8 官方文档明言该组合「without additional measures, it is not necessarily compatible with the target board」，且「on certain firmware, a list of addresses that need virtual addresses for proper NVRAM and hibernation functionality may be required」。本机 **18:08:03 那份日志即为物证**：那次启动 `boot-args` 与 `csr-active-config` 全部丢失（`MBA:NV` 为空、`MBA:OUT` 空串、`CSR:IN 0x00000040`、`BRD:SMBIOS` 回落、3 条 `GFWF` 读取失败），等于以「无 `agdpmod=pikera`、无 `-wegnoigpu`」的状态裸奔——必然黑屏。
 4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。**已于 2026-11-05 移除。**
-5. **未知第二块 VGA（`4c54:5006`，Slot-1，`No Kext Loaded`）干扰 primary display 判定**：低概率，但代价极低可验证。
+5. **未知第二块 VGA（`4c54:5006`，Slot-1，`No Kext Loaded`）干扰 primary display 判定**：低概率。它无驱动，且与 RX 6600 分处独立 PCIe 端口（`PEG1` / `PEG0`），物理上干扰不到 RX 6600 的输出；彻底排除需物理拔卡或 BIOS 关闭该插槽。
 
 > **已降级的假设**：
 > - ~~4 条 display pipe 分配竞态~~ —— 只接 HD270 单屏时同样犯病，与显示器数量无关。
