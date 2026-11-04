@@ -78,27 +78,27 @@ EFI/
 | `SSDT-GPRW.aml` | 配合 GPRW→XPRW 改名，修复睡眠唤醒（改名补丁当前未启用，见「已知情况」） |
 | `FixShutdown-USB-SSDT.aml` | 修复关机后 USB 供电未断的问题 |
 
-## Kexts（21 个启用）
+## Kexts（20 个启用）
 
 **核心**
 
 | Kext | 版本 |
 | --- | --- |
-| Lilu | 1.6.8 |
-| VirtualSMC | 1.3.3 |
-| SMCProcessor | 1.3.3 |
-| SMCSuperIO | 1.3.3 |
+| Lilu | 1.7.2 |
+| VirtualSMC | 1.3.8 |
+| SMCProcessor | 1.3.8 |
+| SMCSuperIO | 1.3.8 |
 | SMCRadeonGPU | 0.3.3 |
-| WhateverGreen | 1.6.7 |
+| WhateverGreen | 1.7.1 |
 
 **音频 / CPU 电源**
 
 | Kext | 版本 | 说明 |
 | --- | --- | --- |
-| AppleALC | 1.9.1 | 配合 `layout-id = 11` |
-| CPUFriend | 1.2.8 | 自定义 CPU 电源管理 |
+| AppleALC | 1.9.8 | 配合 `layout-id = 11` |
+| CPUFriend | 1.3.0 | 自定义 CPU 电源管理 |
 | CPUFriendDataProvider | 1.0.0 | CPUFriend 的数据源 |
-| RestrictEvents | 1.1.4 | 配合 `revcpu` / `revcpuname` 显示正确 CPU 名称 |
+| RestrictEvents | 1.1.6 | 配合 `revcpu` / `revcpuname` 显示正确 CPU 名称 |
 
 **USB**
 
@@ -122,13 +122,13 @@ EFI/
 | Kext | 版本 | 说明 |
 | --- | --- | --- |
 | IntelBluetoothFirmware | 2.4.0 | Intel 蓝牙固件 |
-| IntelBTPatcher | 2.4.0 | Intel 蓝牙补丁 |
-| BlueToolFixup | 2.6.8 | macOS 12+ 蓝牙修复 |
-| NVMeFix | 1.1.1 | NVMe 电源管理与兼容性 |
+| IntelBTPatcher | 2.4.0 | **已禁用**（见「已知情况」） |
+| BlueToolFixup | 2.7.2 | macOS 12+ 蓝牙修复 |
+| NVMeFix | 1.1.3 | NVMe 电源管理与兼容性 |
 
 ### 未启用的 kext（14 个）
 
-`Kexts/` 目录共 34 个 kext：21 个启用、3 个在 config 中显式 `Enabled = false`、10 个完全未被 config 引用（另含 1 个嵌套插件 `AirPortBrcmNIC`）。
+`Kexts/` 目录共 34 个 kext：20 个启用、4 个在 config 中显式 `Enabled = false`、10 个完全未被 config 引用（另含 1 个嵌套插件 `AirPortBrcmNIC`）。
 
 | Kext | 状态 | 用途 |
 | --- | --- | --- |
@@ -221,6 +221,7 @@ EFI/
 
 ## 已知情况
 
+- **IntelBTPatcher 已禁用**：2.4.0（官方最新）在 macOS 15.7.9 上与 IOBluetoothFamily 不兼容——蓝牙控制器枚举后 bluetoothd 进入 `EXC_GUARD` 崩溃循环，登录后整机冻结。当前保留 `IntelBluetoothFirmware 2.4.0` + `BlueToolFixup 2.7.2`，蓝牙功能待实测；如系统稳定但蓝牙不可用，再评估新版 IntelBTPatcher。
 - **`SSDT-GPRW.aml` 已加载，但配套 ACPI 改名补丁（`GPRW` → `XPRW`）在 config 中 `Enabled = false`**。睡眠唤醒若异常，先检查这里。
 - **Wi-Fi**：`AirportItlwm-Sonoma.kext` 存在于 `Kexts/` 但**没有**写进 config，当前 EFI 不加载任何 Intel 无线驱动。需要用 Wi-Fi 时自行添加该 kext 条目。
 - **以太网驱动有冗余**：同时启用了 RTL8125 / I225 / I219 / Atheros 四个驱动，属于兼容性覆盖，可按实际网卡精简。
