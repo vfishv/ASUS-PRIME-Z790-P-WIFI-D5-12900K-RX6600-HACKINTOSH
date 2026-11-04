@@ -6,7 +6,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 
 > ### ⚠️ 使用前必读：SMBIOS 已脱敏
 >
-> 仓库内三份 plist 的 `SystemSerialNumber` / `MLB` / `SystemUUID` / `ROM` 全部替换为占位值：
+> 仓库内 `EFI/OC/config.plist` 的 `SystemSerialNumber` / `MLB` / `SystemUUID` / `ROM` 全部替换为占位值：
 >
 > ```
 > SystemSerialNumber : C02XXXXXXXXX
@@ -27,7 +27,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | --- | --- |
 | 主板 | ASUS PRIME Z790-P WIFI D5 |
 | CPU | Intel Core i9-12900K（16C/24T，Alder Lake） |
-| 内存 | Kingston DDR5 5200 |
+| 内存 | Kingston FURY DDR5 32 GB ×2 = 64 GB（KF552C40-32，SPD 报 4800 MT/s） |
 | 独显 | Sapphire AMD Radeon RX 6600 |
 | 核显 | UHD 770 —— 不驱动（`-wegnoigpu`） |
 | 存储 | NVMe SSD（启用 NVMeFix） |
@@ -42,7 +42,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | macOS | 15.7.9（Build 24G830） |
 | OpenCore | 1.0.8（**DEBUG 版**，`OpenCore.efi` 体积 612 KB） |
 | SMBIOS 机型 | MacPro7,1 |
-| 引导界面 | OpenCanopy 图形界面，主题 GoldenGate |
+| 引导界面 | OpenCanopy 图形界面，`PickerVariant = Auto`（实际取 `Acidanthera\GoldenGate` 主题） |
 | 引导超时 | 3 秒，隐藏辅助项 |
 | SIP | 部分放行，`csr-active-config = 0x0803` |
 | SecureBootModel | Disabled（未启用 Apple 安全启动） |
@@ -56,14 +56,12 @@ EFI/
 ├── APPLE/                      # Apple 固件更新器（MultiUpdater / DpUtil），非必需
 └── OC/
     ├── OpenCore.efi
-    ├── config.plist            # ← 当前使用
-    ├── oldConfig.plist         # 历史备份，未被加载
-    ├── config copie.plist      # 历史备份，未被加载（另一套 SMBIOS）
+    ├── config.plist            # 唯一配置，OpenCore.efi 实际加载的就是它
     ├── ACPI/                   # 7 个 SSDT
-    ├── Kexts/                  # 34 个 kext（21 启用 / 3 禁用 / 10 未被引用）
-    ├── Drivers/                # 54 个 .efi 驱动（其中 8 个启用）
+    ├── Kexts/                  # 34 个 kext（20 启用 / 4 禁用 / 10 未被引用）
+    ├── Drivers/                # 54 个 .efi 驱动（config 中只登记 8 个）
     ├── Tools/                  # CleanNvram / OpenShell / ResetSystem
-    └── Resources/              # 主题图标、字体、开机音
+    └── Resources/              # 主题图标（Acidanthera 三套）、字体、开机音
 ```
 
 ## ACPI（7 个，全部启用）
@@ -122,7 +120,6 @@ EFI/
 | Kext | 版本 | 说明 |
 | --- | --- | --- |
 | IntelBluetoothFirmware | 2.4.0 | Intel 蓝牙固件 |
-| IntelBTPatcher | 2.4.0 | **已禁用**（见「已知情况」） |
 | BlueToolFixup | 2.7.2 | macOS 12+ 蓝牙修复 |
 | NVMeFix | 1.1.3 | NVMe 电源管理与兼容性 |
 
@@ -139,8 +136,9 @@ EFI/
 | `CtlnaAHCIPort.kext` | 未引用 | 第三方 SATA 控制器 |
 | `UTBMap-2port front.kext` | 未引用 | 前面板 2 口的 USB 映射备选 |
 | `USBWakeFixup.kext` | 未引用 | USB 唤醒修复 |
-| `IntelBTPatcher-2.4.kext` | 未引用 | 与已启用的 `IntelBTPatcher.kext` 重复的备份副本 |
+| `IntelBTPatcher-2.4.kext` | 未引用 | 与 `IntelBTPatcher.kext` 重复的备份副本（两者都未加载） |
 | `CpuTopologyRebuild.kext` | `false` | 大小核拓扑重建 |
+| `IntelBTPatcher.kext` | `false` | 2.4.0 与 15.7.9 不兼容，已禁用（见「已知情况」） |
 | `IOSkywalkFamily` / `IO80211FamilyLegacy`（+ `AirPortBrcmNIC`） | `false` | Broadcom 网卡降级方案 |
 
 ## UEFI 驱动（54 个文件，启用 8 个）
@@ -183,7 +181,7 @@ EFI/
 | --- | --- |
 | `PciRoot(0x0)/Pci(0x1F,0x3)` | `layout-id = 0B000000`（即 11） |
 | `PciRoot(0x0)/Pci(0x14,0x0)` | USB 控制器标识（ASUS PRIME Z790-P） |
-| `PciRoot(0x0)/Pci(0x1,0x0)/.../Pci(0x0,0x1)` | HDMI 音频控制器 |
+| `PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x1)` | 显卡 HDMI 音频控制器（`model = Audio Device Controller (HDMI)`） |
 
 **NVRAM**
 
@@ -222,10 +220,9 @@ EFI/
 ## 已知情况
 
 - **IntelBTPatcher 已禁用**：2.4.0（官方最新）在 macOS 15.7.9 上与 IOBluetoothFamily 不兼容——蓝牙控制器枚举后 bluetoothd 进入 `EXC_GUARD` 崩溃循环，登录后整机冻结。当前保留 `IntelBluetoothFirmware 2.4.0` + `BlueToolFixup 2.7.2`，蓝牙功能待实测；如系统稳定但蓝牙不可用，再评估新版 IntelBTPatcher。
-- **`SSDT-GPRW.aml` 已加载，但配套 ACPI 改名补丁（`GPRW` → `XPRW`）在 config 中 `Enabled = false`**。睡眠唤醒若异常，先检查这里。
+- **`SSDT-GPRW.aml` 已加载，但配套的 ACPI 改名补丁（`GPRW` → `XPRW`）在 config 中 `Enabled = false`**。睡眠唤醒若异常，先检查这里。`ACPI → Patch` 三条（`_PTS`→`ZPTS`、`ADBG`→`XDBG`、`GPRW`→`XPRW`）**全部未启用**。
 - **Wi-Fi**：`AirportItlwm-Sonoma.kext` 存在于 `Kexts/` 但**没有**写进 config，当前 EFI 不加载任何 Intel 无线驱动。需要用 Wi-Fi 时自行添加该 kext 条目。
 - **以太网驱动有冗余**：同时启用了 RTL8125 / I225 / I219 / Atheros 四个驱动，属于兼容性覆盖，可按实际网卡精简。
-- **多份备份文件**：`oldConfig.plist`、`config copie.plist` 是历史版本，未被 `OpenCore.efi` 读取，保留仅供参考。
 - **调试配置较重**：`-v` 啰嗦模式 + DEBUG 版 OpenCore + 文件日志持续写入 EFI 分区。日常使用可改用 RELEASE 版、去掉 `-v`、把 `Target` 降为 `0`。
 - **`Kernel → Emulate → Cpuid1Data` 设为 `0x000A0655`**（Raptor Lake 特征值），与 12900K 的 Alder Lake CPUID 不同，属沿用配置，如无特殊需求可置空。
 
