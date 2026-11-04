@@ -8,3 +8,19 @@ opencore-*.txt
 # 编辑器 / 备份
 *.bak
 *~
+
+# OpenCore 配置备份：config.plist.bak-<时间戳>（注意后缀是 .bak-20261105-040314，*.bak 匹配不到）
+config.plist.bak*
+EFI/OC/config.plist.bak*
+
+# OpenCore SysReport（Misc → Debug → SysReport 导出的 ACPI 全表，可达数 MB）
+SysReport/
+**/SysReport/
+
+# OpenCore 运行时目录（NVRAM 转储等）
+NVRAM/
+
+# macOS 挂载 ESP 后残留的卷元数据（会导致目录项被覆盖，禁止提交）
+.fseventsd/
+.Spotlight-V100/
+.Trashes/
