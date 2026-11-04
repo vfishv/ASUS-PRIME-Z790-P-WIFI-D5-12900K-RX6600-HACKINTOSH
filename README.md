@@ -6,7 +6,7 @@ OpenCore 1.0.1
 
 
 
-Sequoia
+Sequoia 15.1
 
 
 
