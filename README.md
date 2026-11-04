@@ -230,11 +230,13 @@ EFI/
 - `7C436110-AB2A-4BBB-A880-FE41995C9F82`：**只剩 `ForceDisplayRotationInEFI`**。原本还列有 `boot-args`，已于 2026-11-05 移除——`Add` 每次启动本来就重写同一串值，这条 Delete 只会把「NVRAM 写入失败」放大成「参数被删空」（见「间歇性开机黑屏」）。
 - `4D1EDE05-38C7-4A6A-9CC6-4BCCA8B38C14`：`DefaultBackgroundColor`。
 
-**Misc / 安全**
+**Misc / Boot 与安全**
 
 | 项目 | 值 | 说明 |
 | --- | --- | --- |
-| `ScanPolicy` | `2687747` | 仅扫描指定类型分区 |
+| `ScanPolicy` | `2688771`（`0x290703`） | 分区扫描白名单，**含 `ALLOW_FS_ESP`**，见下方说明。2026-11-05 由 `2687747` 改（原值缺 ESP 位，导致引导菜单看不到 Windows） |
+| `Timeout` | `5` | 引导菜单自动启动倒计时（秒）。2026-11-05 由 `3` 改，3 秒太短容易错过 Windows 项 |
+| `ShowPicker` | `true` | 显示引导菜单 |
 | `SecureBootModel` | `Disabled` | 未启用 Apple 安全启动 |
 | `DmgLoading` | `Signed` | 仅加载已签名的 DMG |
 | `Vault` | `Optional` | 未启用 vault 校验 |
@@ -242,6 +244,24 @@ EFI/
 | `ExposeSensitiveData` | `15` | NVRAM 敏感数据向 macOS 暴露 |
 | `HideAuxiliary` | `false` | 显示辅助启动项 |
 | `PickerMode` | `External` | 使用 OpenCanopy 图形界面 |
+
+**`ScanPolicy` = `2688771`（`0x290703`）逐位含义**
+
+| 位 | 名称 | 状态 |
+| --- | --- | --- |
+| `0x00000100` | `ALLOW_FS_APFS` | ✅ macOS 卷 |
+| `0x00000200` | `ALLOW_FS_HFS` | ✅ |
+| `0x00000400` | `ALLOW_FS_ESP` | ✅ **Windows 引导所在（`\EFI\Microsoft\Boot\bootmgfw.efi`）** |
+| `0x00000800` | `ALLOW_FS_NTFS` | ❌ 不需要：引导文件在 FAT32 的 ESP 上，不在 NTFS 卷上 |
+| `0x00010000` | `ALLOW_DEVICE_SATA` | ✅ |
+| `0x00080000` | `ALLOW_DEVICE_NVME` | ✅ |
+| `0x00200000` | `ALLOW_DEVICE_ATA` | ✅ |
+
+> **历史**：原值 `2687747`（`0x290303`）**没有 `ALLOW_FS_ESP` 位**，OpenCore 因此完全不去扫 ESP 分区，引导菜单里只有 macOS、看不到 Windows。2026-11-05 加上 `0x400` 修正。
+>
+> 该值只决定「扫哪些分区」，**不参与启动逻辑**，改它不影响 macOS 启动路径。若日后需要在 NTFS 卷上找文件（如 `\Windows\System32\winload.efi` 直启），再加 `0x800`，并启用 `Drivers/OpenNtfsDxe.efi`。
+>
+> **校验方法**：`diskutil list` 找到 Windows 的 EFI 分区（本机 `disk1s1`，104.9 MB，MS-DOS FAT32），挂载后确认 `EFI/Microsoft/Boot/bootmgfw.efi` 与 `EFI/Microsoft/Boot/BCD` 存在。文件缺失时改 `ScanPolicy` 也无用，需用 Windows 安装盘跑 `bcdboot` 修复。
 
 **调试**
 

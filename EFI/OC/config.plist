@@ -951,7 +951,7 @@
 			<key>TakeoffDelay</key>
 			<integer>0</integer>
 			<key>Timeout</key>
-			<integer>3</integer>
+			<integer>5</integer>
 		</dict>
 		<key>Debug</key>
 		<dict>
@@ -999,7 +999,7 @@
 			<data>
 			</data>
 			<key>ScanPolicy</key>
-			<integer>2687747</integer>
+			<integer>2688771</integer>
 			<key>SecureBootModel</key>
 			<string>Disabled</string>
 			<key>Vault</key>
