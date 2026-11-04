@@ -162,7 +162,7 @@ EFI/
 **boot-args**
 
 ```
--v keepsyms=1 agdpmod=pikera debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall revcpu=1
+-v keepsyms=1 agdpmod=pikera gfxrst=4 debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall revcpu=1
 ```
 
 | 参数 | 含义 |
@@ -171,6 +171,7 @@ EFI/
 | `keepsyms=1` | panic 时保留符号 |
 | `debug=0x100` | 禁止看门狗自动重启，便于看清 panic |
 | `agdpmod=pikera` | 修复 RX 6000 系开机黑屏 |
+| `gfxrst=4` | 关闭第二启动阶段的 framebuffer 初始化交互（WhateverGreen），用于修复「到登录界面黑屏」——见「间歇性开机黑屏」 |
 | `-wegnoigpu` | 禁用核显输出 |
 | `e1000=0` | 避免 Intel 网卡驱动抢占 |
 | `swd_panic=1` | 看门狗触发时输出 panic |
@@ -197,7 +198,11 @@ EFI/
 | `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `prev-lang:kbd` | `en-US:0` |
 | `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `run-efi-updater` | `No` |
 
-`NVRAM → Delete` 中，`4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102` 下列了 `rtc-blacklist` / `revcpu` / `revcpuname` / `revpatch`，每次启动先删除再按 Add 重建，避免旧值残留。
+`NVRAM → Delete` 分三段列出「每次启动先删除、再按 Add 重建」的键：
+
+- `4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102`：`rtc-blacklist` / `revcpu` / `revcpuname` / `revpatch`，避免旧值残留。
+- `7C436110-AB2A-4BBB-A880-FE41995C9F82`：**只剩 `ForceDisplayRotationInEFI`**。原本还列有 `boot-args`，已于 2026-11-05 移除——`Add` 每次启动本来就重写同一串值，这条 Delete 只会把「NVRAM 写入失败」放大成「参数被删空」（见「间歇性开机黑屏」）。
+- `4D1EDE05-38C7-4A6A-9CC6-4BCCA8B38C14`：`DefaultBackgroundColor`。
 
 **Misc / 安全**
 
@@ -285,16 +290,16 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 1. **第二阶段 framebuffer 交接失败**。`-v` 白字结束、进入第二启动阶段时 WhateverGreen 会做 framebuffer 复制；AMD Navi 在 4K120 + 双屏下这一步可能失败，而系统本身继续跑完——正好对应「到登录界面黑屏但系统在转」。
 2. **双屏占满 4 条 display pipe**，初始化顺序稍有变化就有一个或两个点不亮。
 3. **`Booter → Quirks → DevirtualiseMmio = true` 配空的 `MmioWhitelist`**。OpenCore 1.0.8 官方文档明言该组合「without additional measures, it is not necessarily compatible with the target board」，且「on certain firmware, a list of addresses that need virtual addresses for proper NVRAM and hibernation functionality may be required」。本机 **18:08:03 那份日志即为物证**：那次启动 `boot-args` 与 `csr-active-config` 全部丢失（`MBA:NV` 为空、`MBA:OUT` 空串、`CSR:IN 0x00000040`、`BRD:SMBIOS` 回落、3 条 `GFWF` 读取失败），等于以「无 `agdpmod=pikera`、无 `-wegnoigpu`」的状态裸奔——必然黑屏。
-4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。
+4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。**已于 2026-11-05 移除。**
 
-**待验证的修改**（尚未应用，均需逐项单独验证）：
+**待验证的修改**（逐项单独验证，每项一次改动）：
 
-| 顺序 | 修改 | 风险 | 目的 |
-| --- | --- | --- | --- |
-| 1 | `boot-args` 追加 `gfxrst=4` | 极低 | WhateverGreen 官方参数：*Disable framebuffer init interaction during 2nd boot stage* |
-| 2 | 从 `NVRAM → Delete` 移除 `boot-args` | 零 | 关闭「参数全丢」窗口 |
-| 3 | `DevirtualiseMmio` 改 `false` | 中 | 验证 NVRAM 写入是否转稳 |
-| 4 | 4K 屏临时降到 60Hz | 零 | 单独验证 DSC / 带宽是否为诱因 |
+| 顺序 | 修改 | 状态 | 风险 | 目的 |
+| --- | --- | --- | --- | --- |
+| 1 | `boot-args` 追加 `gfxrst=4` | **✅ 2026-11-05 已应用** | 极低 | WhateverGreen 官方参数：*Disable framebuffer init interaction during 2nd boot stage* |
+| 2 | 从 `NVRAM → Delete` 移除 `boot-args` | **✅ 2026-11-05 已应用** | 零 | 关闭「参数全丢」窗口 |
+| 3 | `DevirtualiseMmio` 改 `false` | 待定 | 中 | 验证 NVRAM 写入是否转稳 |
+| 4 | 4K 屏临时降到 60Hz | 待定 | 零 | 单独验证 DSC / 带宽是否为诱因 |
 
 `gfxrst=4` 无效时依次试 `gfxrst=1`（*Prefer drawing Apple logo at 2nd boot stage instead of framebuffer copying*）与 `-rad24`（强制 24-bit 色深）。
 
