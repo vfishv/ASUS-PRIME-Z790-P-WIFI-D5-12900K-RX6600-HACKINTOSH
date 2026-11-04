@@ -40,7 +40,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | 项目 | 值 |
 | --- | --- |
 | macOS | 15.7.9（Build 24G830） |
-| OpenCore | 1.0.8（**DEBUG 版**，`OpenCore.efi` 体积 612 KB） |
+| OpenCore | 1.0.8（**RELEASE 版**，`OpenCore.efi` 626,688 B ≈ 612 KB，与官方发布包 MD5 一致） |
 | SMBIOS 机型 | MacPro7,1 |
 | 引导界面 | OpenCanopy 图形界面，主题 `chris1111\Flavours-OSX26`（`PickerAttributes = 145`，启用 content flavour） |
 | 引导超时 | 3 秒，显示辅助项（`HideAuxiliary = false`） |
@@ -209,7 +209,7 @@ EFI/
 | `Vault` | `Optional` | 未启用 vault 校验 |
 | `BlacklistAppleUpdate` | `true` | 阻止 Apple 固件自动更新 |
 | `ExposeSensitiveData` | `15` | NVRAM 敏感数据向 macOS 暴露 |
-| `HideAuxiliary` | `true` | 隐藏辅助启动项 |
+| `HideAuxiliary` | `false` | 显示辅助启动项 |
 | `PickerMode` | `External` | 使用 OpenCanopy 图形界面 |
 
 **调试**
@@ -256,14 +256,60 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 - **`SSDT-GPRW.aml` 已加载，但配套的 ACPI 改名补丁（`GPRW` → `XPRW`）在 config 中 `Enabled = false`**。睡眠唤醒若异常，先检查这里。`ACPI → Patch` 三条（`_PTS`→`ZPTS`、`ADBG`→`XDBG`、`GPRW`→`XPRW`）**全部未启用**。
 - **Wi-Fi**：`AirportItlwm-Sonoma.kext` 存在于 `Kexts/` 但**没有**写进 config，当前 EFI 不加载任何 Intel 无线驱动。需要用 Wi-Fi 时自行添加该 kext 条目。
 - **以太网驱动有冗余**：同时启用了 RTL8125 / I225 / I219 / Atheros 四个驱动，属于兼容性覆盖，可按实际网卡精简。
-- **调试配置较重**：`-v` 啰嗦模式 + DEBUG 版 OpenCore + 文件日志持续写入 EFI 分区。日常使用可改用 RELEASE 版、去掉 `-v`、把 `Target` 降为 `0`。
+- **调试配置较重**：`-v` 啰嗦模式 + 文件日志持续写入 EFI 分区。引导器本身已是 RELEASE 版（因此日志中**没有**任何 `OC:` 行，只剩 `AAPL:` 那一段），日常使用可去掉 `-v`、把 `Target` 降为 `0`。
 - **`SMCRadeonGPU` 已于 2026-11-04 禁用**：`Kexts/` 里仍保留 0.3.3，需要 Radeon GPU 传感器数据时把 `Kernel → Add` 中该项 `Enabled` 改回 `true` 即可。
 - **`Kernel → Emulate → Cpuid1Data` 设为 `0x000A0655`**（Raptor Lake 特征值），与 12900K 的 Alder Lake CPUID 不同，属沿用配置，如无特殊需求可置空。
+
+## 间歇性开机黑屏（未解决）
+
+**现象**（2026-11 起，间歇性；冷启动与热重启均出现过）：
+
+1. 开机到登录界面时显示器失联、**黑屏**。判断依据：盲打回车能听到 macOS 的密码错误提示音——说明 `loginwindow` 已在运行、键盘与音频子系统正常，唯独显示输出丢失。
+2. 偶尔 `-v` 白字刷过之后直接黑屏，不再出画面。
+
+**已排除**（均经实机核对，非推测）：
+
+| 排除项 | 依据 |
+| --- | --- |
+| 内核 panic / 驱动崩溃 | `/Library/Logs/DiagnosticReports` 与 `~/Library/Logs/DiagnosticReports` 下**无任何 `.panic` 文件**，NVRAM 无 `panic-info` |
+| 引导器故障 | ESP 根目录 6 份 `opencore-2026-11-04-*.txt` 全部正常结束于 `#[EB\|LOG:EXITBS:START]`，`BootKernelExtensions.kc` 五次校验值一致 |
+| 引导组件损坏或混版本 | `BOOTx64.efi` + `OpenCore.efi` + 54 个 `Drivers/*.efi` 与官方 1.0.8 RELEASE 包 **MD5 全部一致** |
+| 配置语法 | 官方 `ocvalidate`（1.0.8）：`No issues found.` |
+| DisplayPort 链路训练 / 热插拔检测 | **黑屏时拔插 DP 线无任何反应**，画面不恢复 |
+| 双 ESP 引导冲突 | `disk1s1`（Windows ESP）无 `EFI/OC`，BIOS 不可能从另一套 OpenCore 启动 |
+
+**硬件背景**：两块显示器都接在 RX 6600（Navi 23）上——`DELL U2725QE 3840×2160@120Hz`（主屏）+ `HD270 2560×1440@59Hz`，均为 30-bit 色深（ARGB2101010）。Navi 23 只有 **4 条 display pipe**，这两个显示器正好占满。
+
+**根因假设**（按可能性排序，均待验证）：
+
+1. **第二阶段 framebuffer 交接失败**。`-v` 白字结束、进入第二启动阶段时 WhateverGreen 会做 framebuffer 复制；AMD Navi 在 4K120 + 双屏下这一步可能失败，而系统本身继续跑完——正好对应「到登录界面黑屏但系统在转」。
+2. **双屏占满 4 条 display pipe**，初始化顺序稍有变化就有一个或两个点不亮。
+3. **`Booter → Quirks → DevirtualiseMmio = true` 配空的 `MmioWhitelist`**。OpenCore 1.0.8 官方文档明言该组合「without additional measures, it is not necessarily compatible with the target board」，且「on certain firmware, a list of addresses that need virtual addresses for proper NVRAM and hibernation functionality may be required」。本机 **18:08:03 那份日志即为物证**：那次启动 `boot-args` 与 `csr-active-config` 全部丢失（`MBA:NV` 为空、`MBA:OUT` 空串、`CSR:IN 0x00000040`、`BRD:SMBIOS` 回落、3 条 `GFWF` 读取失败），等于以「无 `agdpmod=pikera`、无 `-wegnoigpu`」的状态裸奔——必然黑屏。
+4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。
+
+**待验证的修改**（尚未应用，均需逐项单独验证）：
+
+| 顺序 | 修改 | 风险 | 目的 |
+| --- | --- | --- | --- |
+| 1 | `boot-args` 追加 `gfxrst=4` | 极低 | WhateverGreen 官方参数：*Disable framebuffer init interaction during 2nd boot stage* |
+| 2 | 从 `NVRAM → Delete` 移除 `boot-args` | 零 | 关闭「参数全丢」窗口 |
+| 3 | `DevirtualiseMmio` 改 `false` | 中 | 验证 NVRAM 写入是否转稳 |
+| 4 | 4K 屏临时降到 60Hz | 零 | 单独验证 DSC / 带宽是否为诱因 |
+
+`gfxrst=4` 无效时依次试 `gfxrst=1`（*Prefer drawing Apple logo at 2nd boot stage instead of framebuffer copying*）与 `-rad24`（强制 24-bit 色深）。
+
+**应急处理**：
+
+| 场景 | 操作 |
+| --- | --- |
+| 黑屏但系统在跑 | 盲打密码回车；登录后仍无画面，则 SSH 进去执行 `sudo launchctl kickstart -k system/com.apple.WindowServer` |
+| 现场取证 | 记下 `-v` 最后一行停在何处——`EXITBS:START` 之后的内核输出**不会**写进 OpenCore 日志，事后翻日志看不到 |
 
 ## 故障恢复
 
 | 现象 | 处理 |
 | --- | --- |
+| 开机到登录界面黑屏，但能听到密码错误提示音 | 系统已启动，仅显示输出丢失——见「间歇性开机黑屏」一节 |
 | 卡 `OCB: StartImage failed` / 引导项错乱 | 引导菜单 → **CleanNvram** |
 | 反复重启、进不去系统 | 引导菜单 → **ResetSystem**，或进 BIOS 清 CMOS |
 | 需要临时关闭 SIP | 引导菜单 → **ToggleSipEntry** |
