@@ -1,6 +1,6 @@
 # ASUS PRIME Z790-P WIFI D5 · i9-12900K · RX 6600 — OpenCore EFI
 
-macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.5** · SMBIOS **MacPro7,1**
+macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 
 本仓库为实机在用的 EFI，配置项与 `EFI/OC/config.plist` 一一对应，非模板拼装。
 
@@ -40,7 +40,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.5** · SMBIOS **MacPro7,1**
 | 项目 | 值 |
 | --- | --- |
 | macOS | 15.7.9（Build 24G830） |
-| OpenCore | 1.0.5（**DEBUG 版**，`OpenCore.efi` 体积 612 KB） |
+| OpenCore | 1.0.8（**DEBUG 版**，`OpenCore.efi` 体积 612 KB） |
 | SMBIOS 机型 | MacPro7,1 |
 | 引导界面 | OpenCanopy 图形界面，主题 GoldenGate |
 | 引导超时 | 3 秒，隐藏辅助项 |
