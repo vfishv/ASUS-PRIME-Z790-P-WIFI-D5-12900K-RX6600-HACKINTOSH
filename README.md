@@ -42,8 +42,8 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | macOS | 15.7.9（Build 24G830） |
 | OpenCore | 1.0.8（**DEBUG 版**，`OpenCore.efi` 体积 612 KB） |
 | SMBIOS 机型 | MacPro7,1 |
-| 引导界面 | OpenCanopy 图形界面，`PickerVariant = Auto`（实际取 `Acidanthera\GoldenGate` 主题） |
-| 引导超时 | 3 秒，隐藏辅助项 |
+| 引导界面 | OpenCanopy 图形界面，主题 `chris1111\Flavours-OSX26`（`PickerAttributes = 145`，启用 content flavour） |
+| 引导超时 | 3 秒，显示辅助项（`HideAuxiliary = false`） |
 | SIP | 部分放行，`csr-active-config = 0x0803` |
 | SecureBootModel | Disabled（未启用 Apple 安全启动） |
 | 处理器显示名 | `Intel(R) Core(TM) i9-12900K`（`ProcessorType = 3841` + RestrictEvents，见「CPU 名称显示」） |
@@ -62,7 +62,7 @@ EFI/
     ├── Kexts/                  # 34 个 kext（19 启用 / 5 禁用 / 10 未被引用）
     ├── Drivers/                # 54 个 .efi 驱动（config 中只登记 8 个）
     ├── Tools/                  # CleanNvram / OpenShell / ResetSystem
-    └── Resources/              # 主题图标（Acidanthera 三套）、字体、开机音
+    └── Resources/              # 主题图标（Acidanthera 三套 + chris1111\Flavours-OSX26）、字体、开机音
 ```
 
 ## ACPI（7 个，全部启用）
