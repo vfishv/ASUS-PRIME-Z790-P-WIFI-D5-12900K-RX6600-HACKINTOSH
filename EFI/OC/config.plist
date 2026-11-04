@@ -389,7 +389,7 @@
 				<key>Comment</key>
 				<string>V0.3.3</string>
 				<key>Enabled</key>
-				<true/>
+				<false/>
 				<key>ExecutablePath</key>
 				<string>Contents/MacOS/SMCRadeonGPU</string>
 				<key>MaxKernel</key>
