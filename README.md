@@ -172,7 +172,7 @@ EFI/
 **boot-args**
 
 ```
--v keepsyms=1 agdpmod=pikera gfxrst=4 debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall revcpu=1
+-v keepsyms=1 agdpmod=pikera gfxrst=4 debug=0x100 -wegnoigpu e1000=0 swd_panic=1 -lilubetaall revcpu=1
 ```
 
 | 参数 | 含义 |
@@ -185,9 +185,25 @@ EFI/
 | `-wegnoigpu` | 禁用核显输出 |
 | `e1000=0` | 避免 Intel 网卡驱动抢占 |
 | `swd_panic=1` | 看门狗触发时输出 panic |
-| `npci=0x2000` | PCI 配置空间兼容 |
 | `-lilubetaall` | 让 Lilu 及插件在非原生支持的 macOS 版本上加载 |
 | `revcpu=1` | 允许 RestrictEvents 改写 CPU 品牌串（名称本身走 NVRAM，见下节） |
+
+> **已移除（2026-11-05）**：`npci=0x2000`。它让内核走端口式（`0xCF8/0xCFC`）PCI 配置空间访问，是给卡在 `PCI Configuration Begin` 的老平台用的遗留参数。本板 Above 4G Decoding 开启、设备 BAR 落在 4GB 以上，此参数属于多余负担，且**可能造成 PCI 枚举随机失败**——若 GPU 某次没被枚举到，表现即为黑屏且无声音。详见「间歇性开机黑屏」实验 H。
+
+**Booter → Quirks（关键项）**
+
+| 项目 | 当前值 | 说明 |
+| --- | --- | --- |
+| `DevirtualiseMmio` | `true`（2026-11-05 曾改 `false` 实测 **无效**，已回滚） | 见「间歇性开机黑屏」实验 E2。原值与空 `MmioWhitelist` 组合，官方文档明言「不保证与本板兼容」；但实测关闭后偶发照旧 ⇒ **不是本故障根因** |
+| `MmioWhitelist` | 空数组 | 若日后需要重新开启 `DevirtualiseMmio`，必须配合实测白名单，不能直接裸开 |
+| `ProvideCustomSlide` | `true` | **未改动**。与 E2 配套但独立，同时改会失去可判读性 |
+| `ProvideMaxSlide` | `0` | 由 OpenCore 自动推算 |
+| `EnableSafeModeSlide` | `true` | 安全模式也要能算出 slide |
+| `AvoidRuntimeDefrag` | `true` | 现代固件必需 |
+| `RebuildAppleMemoryMap` | `true` | 重建内存映射 |
+| `SetupVirtualMap` | `true` | 现代固件必需 |
+| `SyncRuntimePermissions` | `true` | 现代固件必需 |
+| `ResizeAppleGpuBars` | `0` | 不改 BAR（RX 6600 无需 Resizable BAR 调整） |
 
 **DeviceProperties**
 
@@ -230,6 +246,12 @@ EFI/
 **调试**
 
 `AppleDebug = true`、`ApplePanic = true`、`DisableWatchDog = true`、`Debug → Target = 67`（`0x43` = 控制台 + DataHub + 文件日志）。日志写入 EFI 分区根目录的 `opencore-YYYY-MM-DD-HHMMSS.txt`。
+
+> ⚠️ **日志时间戳是 UTC，比本地时间（UTC+8）慢 8 小时。**
+>
+> 文件名和日志正文里的时间都要 **+8 小时** 才是本地时间。例如文件名 `opencore-2026-11-04-211739.txt`、正文 `#[EB|LOG:INIT] 2026-11-04T21:17:47`，实际是本地 **2026-11-05 05:17:47**。
+>
+> 判断「日志是不是本次启动产生的」必须换算后再比对 `sysctl -n kern.boottime`，否则会把当天的日志误判成前一天的（2026-11-05 已踩过这个坑）。
 
 ## CPU 名称显示
 
@@ -283,6 +305,8 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 2. 偶尔 `-v` 白字刷过之后直接黑屏，不再出画面。
 3. **2026-11-05 追加观测**：应用 `gfxrst=4` 并重启后**仍偶发**。
 4. **2026-11-05 关键观测**：**只接 HD270（2560×1440@59.97Hz）一台显示器时，同样会偶发黑屏、进不去系统。** 单屏也犯 ⇒ 与「双屏把 display pipe 占满」无关，故障不依赖显示器数量。这一条把排查方向从「多屏资源竞争」拉回到「单路 framebuffer / connector 初始化」。
+5. **2026-11-05 追加观测（覆盖面扩大）**：**无论单独接哪一台显示器（HD270 或 DELL U2725QE），都偶发进不去系统**；且存在两种严重度——① 能进登录界面、盲打回车有密码错误提示音；② **黑屏且连密码错误声都没有**。后者说明系统没走到 `loginwindow`，甚至键盘/音频都没起来，故障点比「显示输出丢失」更早。
+6. **2026-11-05 追加观测（排除第二块显卡）**：**Windows 专用那张 `4c54:5006` 是否插着，表现完全一样；此前只装 RX 6600 单卡时同样偶发。** 该卡与故障无关，可从嫌疑中剔除。
 
 **已排除**（均经实机核对，非推测）：
 
@@ -296,6 +320,9 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 | 双屏占满 4 条 display pipe | **只接 HD270 单屏时同样偶发黑屏、进不去系统**，故障与显示器数量无关 |
 | 第二阶段 framebuffer 交接（`gfxrst`） | 已应用 `gfxrst=4` 后仍偶发，单靠此项无法解释 |
 | 双 ESP 引导冲突 | `disk1s1`（Windows ESP）无 `EFI/OC`，BIOS 不可能从另一套 OpenCore 启动 |
+| 第二块显卡（`4c54:5006`）干扰 | **插着与拔掉表现一致；此前只装 RX 6600 单卡时同样偶发** ⇒ 与故障无关 |
+| 显示器型号 / 单屏拓扑 | **HD270 单屏、DELL 单屏均偶发** ⇒ 与具体显示器无关 |
+| ACPI `_STA=0` 隐藏第二块显卡（`SSDT-GPU-SLOT1`） | 2026-11-05 曾启用并实测，**期间偶发黑屏照旧**；且 ACPI 视图与 PCI 总线视图不一致本身可能引入随机性，**已删除**（详见「ACPI」节注记） |
 
 **硬件背景**（2026-11-05 实读 `system_profiler` / `ioreg` / EDID）：
 
@@ -312,29 +339,49 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 >
 > 关键在于**它和 RX 6600 分处两个独立的 PCIe 端口**：该卡挂在 **`PEG1@1`** 下（`GFX0@0` + `HDAU@0,1`），RX 6600 在 **`PEG0@6`** 下（`PEGP@0 → pci-bridge → GFX1@0`）。两者互不影响，因此这张卡**阻断不了 RX 6600 的枚举**。曾想用 ACPI `_STA` 在 macOS 侧隐去它，实测无效，已撤销（见「ACPI」节注记）。
 
-**根因假设**（按可能性排序，随观测进展调整）：
+**根因假设**（2026-11-05 第二轮实验后重排，按可能性排序）：
 
-1. **单路 connector 的 modeset 随机失败（与显示器数量无关）**。单屏独显也犯病，说明不是 pipe/资源耗尽，而是开机窗口内某一路 connector 的初始化偶尔没完成。HD270 是「双屏」与「单屏」两套拓扑中**唯一都出现**的显示器，因此它是最值得单独验证的变量。
-2. **HD270 自身的 EDID / 时序 / 色深**。HKC 2015 年 QHD 屏，EDID 1.4 只提供一条 DTD（2560×1440@59.97，pclk 241.5 MHz），而系统按 **30-bit ARGB2101010** 输出——30bpp 比 24bpp 多 25% 链路带宽，若 DP 链路协商落在 HBR（8.64 Gbps 有效）而非 HBR2，余量会明显变薄。2015 年的低价屏被误判为 10-bit 是常见情况。
-3. **`Booter → Quirks → DevirtualiseMmio = true` 配空的 `MmioWhitelist`**。OpenCore 1.0.8 官方文档明言该组合「without additional measures, it is not necessarily compatible with the target board」，且「on certain firmware, a list of addresses that need virtual addresses for proper NVRAM and hibernation functionality may be required」。本机 **18:08:03 那份日志即为物证**：那次启动 `boot-args` 与 `csr-active-config` 全部丢失（`MBA:NV` 为空、`MBA:OUT` 空串、`CSR:IN 0x00000040`、`BRD:SMBIOS` 回落、3 条 `GFWF` 读取失败），等于以「无 `agdpmod=pikera`、无 `-wegnoigpu`」的状态裸奔——必然黑屏。
-4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。**已于 2026-11-05 移除。**
-5. **未知第二块 VGA（`4c54:5006`，Slot-1，`No Kext Loaded`）干扰 primary display 判定**：低概率。它无驱动，且与 RX 6600 分处独立 PCIe 端口（`PEG1` / `PEG0`），物理上干扰不到 RX 6600 的输出；彻底排除需物理拔卡或 BIOS 关闭该插槽。
+1. **`npci=0x2000` 与 Above4G/MCONFIG 混用** ——**当前首要嫌疑**。该参数让内核走端口式（`0xCF8/0xCFC`）PCI 配置空间访问，是给卡在 `PCI Configuration Begin` 的老平台用的遗留开关。本板 Above 4G Decoding 开启、设备 BAR 落在 4GB 以上，端口式访问与 PCIe 扩展配置空间所需的 MMCONFIG 并存，**可能随机枚举失败**。若 GPU 某次没被正确枚举，表现正好是黑屏且无声音。**2026-11-05 已移除，观察中。**
+2. **单路 connector 的 modeset 随机失败**。两种显示器单接都犯病，说明不是 pipe/资源耗尽，而是开机窗口内某一路 connector 的初始化偶尔没完成。只能解释「有声音、无画面」那一半，**解释不了「连声音都没有」**。
+3. **黑屏位置比内核 verbose 输出还早**（2026-11-05 新增观测）。用户反馈黑屏时**看不到任何内核 `[ ... ]` 输出**，看到的「白字」是 OpenCore 自己的启动日志（`AppleDebug=true`）。⇒ 画面在 `#[EB|LOG:EXITBS:START]` 交棒给内核后**立即**断开，连第一行内核输出都没出来。故障点落在「booter 交棒 → 内核初始化 PCI/GPU」这一段，与第 1 条的 PCI 枚举假设方向一致。
+4. **`swd_panic=1` 摧毁证据**（不是根因，但它让诊断无法收敛）。内核 watchdog panic 会被改成静默重启，不落 `.panic` 文件、不留 `panic-info`。这解释了为什么日志永远停在 `#[EB|LOG:EXITBS:START]` 之后就没有下文。**建议在某一轮里临时去掉以便取证。**
+5. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。**已于 2026-11-05 移除。**
 
-> **已降级的假设**：
-> - ~~4 条 display pipe 分配竞态~~ —— 只接 HD270 单屏时同样犯病，与显示器数量无关。
+> **已知与该故障无关（不要再往这些方向查）**：
+> - ~~HD270 自身的 EDID / 时序 / 色深~~ —— DELL 单屏同样犯病，与具体显示器无关。
+> - ~~4 条 display pipe 分配竞态~~ —— 单屏也犯，与显示器数量无关。
 > - ~~第二阶段 framebuffer 交接失败~~ —— 应用 `gfxrst=4` 后仍偶发，该层不足以单独解释。
+> - ~~第二块显卡 `4c54:5006` 干扰~~ —— 插着与拔掉表现一致，且曾长期只装 RX 6600 单卡，同样偶发。
+> - ~~ACPI `_STA=0` 隐藏第二块显卡~~ —— 生效期间偶发照旧，且无法阻止 PCI 枚举，已删除。
+> - ~~内存超频不稳（XMP）~~ —— 实读 2×`KF552C40-32`（标称 DDR5-5200）运行在 **4800 MHz**，即 JEDEC 默认、未超频；插法 A2/B2、每通道 1 条 dual-rank，在 12900K 标称支持范围内。
+> - ~~`DevirtualiseMmio=true` 配空 `MmioWhitelist`~~ —— 2026-11-05 改 `false` 后偶发照旧，已回滚为 `true`，非本故障根因。
 
-**待验证的实验与修改**（逐项单独验证，A/B 两个零成本对照优先）：
+**待验证的实验与修改**（一次只改一个变量，否则分不清是谁的功劳）：
 
 | 顺序 | 实验 / 修改 | 状态 | 风险 | 目的 |
 | --- | --- | --- | --- | --- |
-| **A** | **只接 HD270 单屏**，开关机 8～10 次 | **✅ 已观测：仍偶发黑屏、进不去系统** | 零 | 确认故障与显示器数量无关 |
-| **B** | **只接 DELL 单屏**（拔掉 HD270），同样 8～10 次 | **下一步（首选）** | 零 | 区分「HD270 专属」还是「全局」：不犯 ⇒ 锁定 HD270；仍犯 ⇒ 与屏无关，直接做 E |
-| C | HD270 换到 RX 6600 的另一路 DP，或改用 HDMI，并换线 | 待定 | 零 | 排除 connector 与线材 |
-| D | 降低 HD270 链路负载：分辨率降 1920×1080@60，或 `boot-args` 加 `-rad24` 强制 24-bit 色深 | 待定 | 低 | 验证 30-bit（30bpp）/ 链路带宽是否为诱因 |
-| E | `DevirtualiseMmio` 改 `false` | 待定 | 中 | 验证 NVRAM 写入是否转稳 |
+| **A** | **只接 HD270 单屏**，开关机 8～10 次 | **✅ 已观测：仍偶发** | 零 | 确认故障与显示器数量无关 |
+| **B** | **只接 DELL 单屏**，同样 8～10 次 | **✅ 已观测：仍偶发** ⇒ 与显示器型号无关 | 零 | 排除「HD270 专属」 |
+| C | 换 DP 口 / 换线 / 改 HDMI | **不再必要** | 零 | 两种屏、两套链路都犯，线材与 connector 已可排除 |
+| D | 降 HD270 到 1080p 或 `-rad24` | 降为低优先 | 低 | 仅在「有声音无画面」那一半仍频繁时再试 |
+| **E1** | **撤销 `SSDT-GPU-SLOT1`**（config 8 行 + 删 `.aml`） | **✅ 2026-11-05 已执行** | 零 | 回到干净基线；消除 ACPI/PCI 视图不一致 |
+| **E2** | `Booter → Quirks → DevirtualiseMmio` 改 `false` | **❌ 2026-11-05 已应用 → 无效（仍偶发）→ 已回滚为 `true`** | 低 | 验证 MMIO 剥离逻辑是否为「偶发」来源；结论：**不是** |
 | F | `boot-args` 追加 `gfxrst=4` | **✅ 2026-11-05 已应用（无效）** | 极低 | WhateverGreen：*Disable framebuffer init interaction during 2nd boot stage* |
 | G | 从 `NVRAM → Delete` 移除 `boot-args` | **✅ 2026-11-05 已应用** | 零 | 关闭「参数全丢」窗口 |
+| **H** | **去掉 `boot-args` 中的 `npci=0x2000`** | **✅ 2026-11-05 已应用，观察中** | 低（纯减法，出问题加回即可） | 验证端口式 PCI 配置访问是否造成随机枚举失败 |
+| I | 临时去掉 `swd_panic=1` | 待定 | 零 | 换取 panic 现场（`.panic` 文件 / `panic-info`）；**只在专门取证的那一轮做** |
+| J | 开「远程登录」，黑屏时用手机 SSH 连入 | **建议提前做** | 零 | 一次定性：**能连上 = 系统全好、纯显示输出丢失**（转 GPU/connector）；**连不上 = 真卡在内核早期**（继续查 PCI/固件） |
+
+**H 结果判读**：
+
+| 观察结果 | 结论 | 下一步 |
+| --- | --- | --- |
+| 10 次全部正常 | 就是 `npci=0x2000` | 保持移除；再单独验一次 E2 能否共存 |
+| 仍偶发，且黑屏前**有**内核白字 | 与 PCI 枚举无关，转显示层 | 做 D、J |
+| 仍偶发，且黑屏前**没有任何**内核输出 | 卡在 PCI 枚举之前 | 做 I（去掉 `swd_panic=1` 换取 panic 现场） |
+| 反而更差 | 本板确实需要该参数 | 加回 `npci=0x2000` |
+
+> 注意：本轮 H 与「E2 回滚」是一起做的（两个变量）。若因此好转，需单独回滚 E2 再验一次才能确定功劳归属。
 
 `gfxrst=4` 无效后仍可试 `gfxrst=1`（*Prefer drawing Apple logo at 2nd boot stage instead of framebuffer copying*）；`-rad24` 已并入 D。
 
@@ -344,7 +391,9 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 | --- | --- |
 | 黑屏但系统在跑 | 盲打密码回车；登录后仍无画面，则 SSH 进去执行 `sudo launchctl kickstart -k system/com.apple.WindowServer` |
 | 怀疑是 `gfxrst=4` 引起的 | 回滚到改前备份：`cp /Volumes/EFI/EFI/OC/config.plist.bak-20261105-040421 /Volumes/EFI/EFI/OC/config.plist`（该备份为「已移除 Delete、未加 `gfxrst`」状态；`config.plist.bak-20261105-040314` 是最初原始状态） |
-| 现场取证 | 记下 `-v` 最后一行停在何处——`EXITBS:START` 之后的内核输出**不会**写进 OpenCore 日志，事后翻日志看不到 |
+| **回滚本轮改动（移除 `npci=0x2000` + `DevirtualiseMmio` 回 `true`）** | `cp /Volumes/EFI/EFI/OC/config.plist.bak-20261105-050718 /Volumes/EFI/EFI/OC/config.plist`。该备份为「`DevirtualiseMmio=false` + 仍带 `npci=0x2000`」状态，即本轮改前现场 |
+| 怀疑是 `DevirtualiseMmio=false` 引起的（如反复开不了机） | 回滚：`cp /Volumes/EFI/EFI/OC/config.plist.bak-20261105-045216 /Volumes/EFI/EFI/OC/config.plist`。该备份为「`DevirtualiseMmio=true` + 仍带 `SSDT-GPU-SLOT1`」状态，即上一轮实验前的完整现场 |
+| 现场取证 | **实测：黑屏时看不到任何内核 `-v` 输出**（2026-11-05），「白字」是 OpenCore 自己的日志。⇒ 画面在 `EXITBS:START` 后立即断开，只能靠远程登录（实验 J）判断系统是否起来了 |
 
 ## 故障恢复
 
@@ -355,6 +404,7 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 | 反复重启、进不去系统 | 引导菜单 → **ResetSystem**，或进 BIOS 清 CMOS |
 | 需要临时关闭 SIP | 引导菜单 → **ToggleSipEntry** |
 | 需要抓取日志 | 按 F10 截图（CrScreenshotDxe），或到 EFI 根目录找 `opencore-*.txt` |
+| **macOS 完全开不了机（连引导菜单都过不去）** | macOS 已进不去 ⇒ 回滚必须换系统操作。**在 Windows 里**以管理员身份运行 `cmd`：<br>`mountvol X: /s`<br>`copy X:\EFI\OC\config.plist.bak-20261105-050718 X:\EFI\OC\config.plist`<br>`mountvol X: /d`<br>（`X:` 换成一个未占用的盘符；备份名换成你想回滚到的那一份）。也可用本机 `disk1s4` 的 WINPE。**注意**：此命令只回滚 config，不会动 `ACPI/` 目录下的其他文件 |
 
 ## 参考
 
