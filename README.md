@@ -46,6 +46,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | 引导超时 | 3 秒，隐藏辅助项 |
 | SIP | 部分放行，`csr-active-config = 0x0803` |
 | SecureBootModel | Disabled（未启用 Apple 安全启动） |
+| 处理器显示名 | `Intel(R) Core(TM) i9-12900K`（`ProcessorType = 3841` + RestrictEvents，见「CPU 名称显示」） |
 
 ## 目录结构
 
@@ -58,7 +59,7 @@ EFI/
     ├── OpenCore.efi
     ├── config.plist            # 唯一配置，OpenCore.efi 实际加载的就是它
     ├── ACPI/                   # 7 个 SSDT
-    ├── Kexts/                  # 34 个 kext（20 启用 / 4 禁用 / 10 未被引用）
+    ├── Kexts/                  # 34 个 kext（19 启用 / 5 禁用 / 10 未被引用）
     ├── Drivers/                # 54 个 .efi 驱动（config 中只登记 8 个）
     ├── Tools/                  # CleanNvram / OpenShell / ResetSystem
     └── Resources/              # 主题图标（Acidanthera 三套）、字体、开机音
@@ -76,7 +77,7 @@ EFI/
 | `SSDT-GPRW.aml` | 配合 GPRW→XPRW 改名，修复睡眠唤醒（改名补丁当前未启用，见「已知情况」） |
 | `FixShutdown-USB-SSDT.aml` | 修复关机后 USB 供电未断的问题 |
 
-## Kexts（20 个启用）
+## Kexts（19 个启用）
 
 **核心**
 
@@ -86,7 +87,6 @@ EFI/
 | VirtualSMC | 1.3.8 |
 | SMCProcessor | 1.3.8 |
 | SMCSuperIO | 1.3.8 |
-| SMCRadeonGPU | 0.3.3 |
 | WhateverGreen | 1.7.1 |
 
 **音频 / CPU 电源**
@@ -123,9 +123,9 @@ EFI/
 | BlueToolFixup | 2.7.2 | macOS 12+ 蓝牙修复 |
 | NVMeFix | 1.1.3 | NVMe 电源管理与兼容性 |
 
-### 未启用的 kext（14 个）
+### 未启用的 kext（15 个）
 
-`Kexts/` 目录共 34 个 kext：20 个启用、4 个在 config 中显式 `Enabled = false`、10 个完全未被 config 引用（另含 1 个嵌套插件 `AirPortBrcmNIC`）。
+`Kexts/` 目录共 34 个 kext：19 个启用、5 个在 config 中显式 `Enabled = false`、10 个完全未被 config 引用（`IO80211FamilyLegacy` 另带 1 个同样禁用的嵌套插件 `AirPortBrcmNIC`）。
 
 | Kext | 状态 | 用途 |
 | --- | --- | --- |
@@ -137,6 +137,7 @@ EFI/
 | `UTBMap-2port front.kext` | 未引用 | 前面板 2 口的 USB 映射备选 |
 | `USBWakeFixup.kext` | 未引用 | USB 唤醒修复 |
 | `IntelBTPatcher-2.4.kext` | 未引用 | 与 `IntelBTPatcher.kext` 重复的备份副本（两者都未加载） |
+| `SMCRadeonGPU.kext` | `false` | Radeon GPU 传感器，2026-11-04 起禁用 |
 | `CpuTopologyRebuild.kext` | `false` | 大小核拓扑重建 |
 | `IntelBTPatcher.kext` | `false` | 2.4.0 与 15.7.9 不兼容，已禁用（见「已知情况」） |
 | `IOSkywalkFamily` / `IO80211FamilyLegacy`（+ `AirPortBrcmNIC`） | `false` | Broadcom 网卡降级方案 |
@@ -161,7 +162,7 @@ EFI/
 **boot-args**
 
 ```
--v keepsyms=1 agdpmod=pikera debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall
+-v keepsyms=1 agdpmod=pikera debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall revcpu=1
 ```
 
 | 参数 | 含义 |
@@ -174,6 +175,8 @@ EFI/
 | `e1000=0` | 避免 Intel 网卡驱动抢占 |
 | `swd_panic=1` | 看门狗触发时输出 panic |
 | `npci=0x2000` | PCI 配置空间兼容 |
+| `-lilubetaall` | 让 Lilu 及插件在非原生支持的 macOS 版本上加载 |
+| `revcpu=1` | 允许 RestrictEvents 改写 CPU 品牌串（名称本身走 NVRAM，见下节） |
 
 **DeviceProperties**
 
@@ -185,12 +188,16 @@ EFI/
 
 **NVRAM**
 
-| 键 | 值 |
-| --- | --- |
-| `revcpu` | `1` |
-| `revcpuname` | `Intel(R) Core(TM) i9-12900K` |
-| `prev-lang:kbd` | `en-US:0` |
-| `run-efi-updater` | `No` |
+| GUID | 键 | 值 |
+| --- | --- | --- |
+| `4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102` | `revcpu` | `1`（Number） |
+| `4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102` | `revcpuname` | `Intel(R) Core(TM) i9-12900K`（String） |
+| `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `boot-args` | 见上 |
+| `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `csr-active-config` | `03080000`（即 `0x0803`） |
+| `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `prev-lang:kbd` | `en-US:0` |
+| `7C436110-AB2A-4BBB-A880-FE41995C9F82` | `run-efi-updater` | `No` |
+
+`NVRAM → Delete` 中，`4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102` 下列了 `rtc-blacklist` / `revcpu` / `revcpuname` / `revpatch`，每次启动先删除再按 Add 重建，避免旧值残留。
 
 **Misc / 安全**
 
@@ -202,13 +209,39 @@ EFI/
 | `Vault` | `Optional` | 未启用 vault 校验 |
 | `BlacklistAppleUpdate` | `true` | 阻止 Apple 固件自动更新 |
 | `ExposeSensitiveData` | `15` | NVRAM 敏感数据向 macOS 暴露 |
-| `WriteFlash` | `true` | 允许写 NVRAM |
 | `HideAuxiliary` | `true` | 隐藏辅助启动项 |
 | `PickerMode` | `External` | 使用 OpenCanopy 图形界面 |
 
 **调试**
 
 `AppleDebug = true`、`ApplePanic = true`、`DisableWatchDog = true`、`Debug → Target = 67`（`0x43` = 控制台 + DataHub + 文件日志）。日志写入 EFI 分区根目录的 `opencore-YYYY-MM-DD-HHMMSS.txt`。
+
+## CPU 名称显示
+
+macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处配合把「关于本机」的处理器一行改成 `Intel(R) Core(TM) i9-12900K`（已在 15.7.9 实机验证）：
+
+| 位置 | 设置 |
+| --- | --- |
+| `PlatformInfo → Generic → ProcessorType` | `3841`（`0x0F01`） |
+| `Kernel → Add` | `RestrictEvents.kext` 1.1.6，`Enabled = true`，排在 `Lilu.kext` 之后 |
+| `NVRAM → Add → 4D1FDA02-…` | `revcpu = 1`（Number）、`revcpuname = Intel(R) Core(TM) i9-12900K`（String） |
+
+**为什么 `ProcessorType` 必须是 3841**
+
+`revcpuname` 并不是把名字直接写进系统，它的做法是在 dyld 共享缓存的字符串表里找到一条**已存在**的 CPU 名称串再替换掉。而这条串能否命中，取决于 `ProcessorType` + 核心数的查表结果：
+
+- 8 核及以上 → `0x0F01` = **3841**（Xeon W 族，表里有 24 核条目）
+- 1 / 2 / 4 / 6 核 → `0x0601` = **1537**
+
+`ProcessorType = 0` 时按核数查表直接落空，显示的仍是「未知」，RestrictEvents 也就没有可替换的字符串，`revcpuname` 写了不生效。这正是本机 2026-11-04 之前一直显示「未知」的原因。
+
+**为什么名称走 NVRAM 而不是 boot-args**
+
+`boot-args` 以空格分词，`revcpuname` 的值本身含空格，写进去会被截断。RestrictEvents 支持同名 NVRAM 变量，效果与 boot-args 等价、优先级更低。当前 `boot-args` 里也有 `revcpu=1`，与 NVRAM 的 `revcpu` 重复但值相同，不冲突。
+
+**影响范围**
+
+`3841` 是 Xeon W 族的 Apple CPU identifier，属**显示层伪装**：不改 CPUID、不改核心/线程拓扑、不影响性能。系统报告的物理/逻辑核心数仍按真实 16C/24T 给出。取值为 `0` 即可完全还原。
 
 ## 使用方法
 
@@ -224,6 +257,7 @@ EFI/
 - **Wi-Fi**：`AirportItlwm-Sonoma.kext` 存在于 `Kexts/` 但**没有**写进 config，当前 EFI 不加载任何 Intel 无线驱动。需要用 Wi-Fi 时自行添加该 kext 条目。
 - **以太网驱动有冗余**：同时启用了 RTL8125 / I225 / I219 / Atheros 四个驱动，属于兼容性覆盖，可按实际网卡精简。
 - **调试配置较重**：`-v` 啰嗦模式 + DEBUG 版 OpenCore + 文件日志持续写入 EFI 分区。日常使用可改用 RELEASE 版、去掉 `-v`、把 `Target` 降为 `0`。
+- **`SMCRadeonGPU` 已于 2026-11-04 禁用**：`Kexts/` 里仍保留 0.3.3，需要 Radeon GPU 传感器数据时把 `Kernel → Add` 中该项 `Enabled` 改回 `true` 即可。
 - **`Kernel → Emulate → Cpuid1Data` 设为 `0x000A0655`**（Raptor Lake 特征值），与 12900K 的 Alder Lake CPUID 不同，属沿用配置，如无特殊需求可置空。
 
 ## 故障恢复
