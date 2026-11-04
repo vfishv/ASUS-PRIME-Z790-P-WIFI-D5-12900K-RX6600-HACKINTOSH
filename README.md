@@ -271,6 +271,8 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 
 1. 开机到登录界面时显示器失联、**黑屏**。判断依据：盲打回车能听到 macOS 的密码错误提示音——说明 `loginwindow` 已在运行、键盘与音频子系统正常，唯独显示输出丢失。
 2. 偶尔 `-v` 白字刷过之后直接黑屏，不再出画面。
+3. **2026-11-05 追加观测**：应用 `gfxrst=4` 并重启后**仍偶发**。
+4. **2026-11-05 关键观测**：**只接 HD270（2560×1440@59.97Hz）一台显示器时，同样会偶发黑屏、进不去系统。** 单屏也犯 ⇒ 与「双屏把 display pipe 占满」无关，故障不依赖显示器数量。这一条把排查方向从「多屏资源竞争」拉回到「单路 framebuffer / connector 初始化」。
 
 **已排除**（均经实机核对，非推测）：
 
@@ -281,33 +283,55 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 | 引导组件损坏或混版本 | `BOOTx64.efi` + `OpenCore.efi` + 54 个 `Drivers/*.efi` 与官方 1.0.8 RELEASE 包 **MD5 全部一致** |
 | 配置语法 | 官方 `ocvalidate`（1.0.8）：`No issues found.` |
 | DisplayPort 链路训练 / 热插拔检测 | **黑屏时拔插 DP 线无任何反应**，画面不恢复 |
+| 双屏占满 4 条 display pipe | **只接 HD270 单屏时同样偶发黑屏、进不去系统**，故障与显示器数量无关 |
+| 第二阶段 framebuffer 交接（`gfxrst`） | 已应用 `gfxrst=4` 后仍偶发，单靠此项无法解释 |
 | 双 ESP 引导冲突 | `disk1s1`（Windows ESP）无 `EFI/OC`，BIOS 不可能从另一套 OpenCore 启动 |
 
-**硬件背景**：两块显示器都接在 RX 6600（Navi 23）上——`DELL U2725QE 3840×2160@120Hz`（主屏）+ `HD270 2560×1440@59Hz`，均为 30-bit 色深（ARGB2101010）。Navi 23 只有 **4 条 display pipe**，这两个显示器正好占满。
+**硬件背景**（2026-11-05 实读 `system_profiler` / `ioreg` / EDID）：
 
-**根因假设**（按可能性排序，均待验证）：
+| 项 | 实况 |
+| --- | --- |
+| dGPU | RX 6600（Navi 23，`1002:73ff`），Slot-2，Metal 3，8 GB |
+| iGPU | `8086:4660`（UHD 770）存在但 `No Kext Loaded`，macOS 15 无驱动，属正常 |
+| **未知第二块 VGA** | **`4c54:5006`（class `0x030000`，Slot-1 x16，另带音频 function `4c54:5010`），`No Kext Loaded`** |
+| HD270 | 厂商 **HKC**、产品码 `0x2700`、**2015 年**、EDID 1.4、60×34 cm；原生 DTD **2560×1440@59.97Hz**（pclk 241.5 MHz，htotal 2720 × vtotal 1481）；系统按 **30-bit ARGB2101010** 输出 |
+| DELL U2725QE | 厂商 DEL、产品码 `0x4362`、**2026 年**、EDID 1.4；当前 3840×2160@60Hz（界面 HiDPI 缩放到 1920×1080）；30-bit |
+| display pipe | Navi 23 共 **4 条**；双屏时被占满，但单屏也犯病 ⇒ 非瓶颈因素 |
 
-1. **第二阶段 framebuffer 交接失败**。`-v` 白字结束、进入第二启动阶段时 WhateverGreen 会做 framebuffer 复制；AMD Navi 在 4K120 + 双屏下这一步可能失败，而系统本身继续跑完——正好对应「到登录界面黑屏但系统在转」。
-2. **双屏占满 4 条 display pipe**，初始化顺序稍有变化就有一个或两个点不亮。
+> 那台 `4c54:5006` 是独立于 RX 6600 与 iGPU 的第三个 VGA 设备，`system_profiler` 里显示为 Slot-1 的 `No Kext Loaded`。它没有驱动、不输出画面，但**会参与 macOS 的显示设备枚举**；若某次开机它被选为 primary display，就可能出现「系统在跑、屏上没画面」。这条属低概率怀疑项，需在下次黑屏时用 `ioreg` 复核。
+
+**根因假设**（按可能性排序，随观测进展调整）：
+
+1. **单路 connector 的 modeset 随机失败（与显示器数量无关）**。单屏独显也犯病，说明不是 pipe/资源耗尽，而是开机窗口内某一路 connector 的初始化偶尔没完成。HD270 是「双屏」与「单屏」两套拓扑中**唯一都出现**的显示器，因此它是最值得单独验证的变量。
+2. **HD270 自身的 EDID / 时序 / 色深**。HKC 2015 年 QHD 屏，EDID 1.4 只提供一条 DTD（2560×1440@59.97，pclk 241.5 MHz），而系统按 **30-bit ARGB2101010** 输出——30bpp 比 24bpp 多 25% 链路带宽，若 DP 链路协商落在 HBR（8.64 Gbps 有效）而非 HBR2，余量会明显变薄。2015 年的低价屏被误判为 10-bit 是常见情况。
 3. **`Booter → Quirks → DevirtualiseMmio = true` 配空的 `MmioWhitelist`**。OpenCore 1.0.8 官方文档明言该组合「without additional measures, it is not necessarily compatible with the target board」，且「on certain firmware, a list of addresses that need virtual addresses for proper NVRAM and hibernation functionality may be required」。本机 **18:08:03 那份日志即为物证**：那次启动 `boot-args` 与 `csr-active-config` 全部丢失（`MBA:NV` 为空、`MBA:OUT` 空串、`CSR:IN 0x00000040`、`BRD:SMBIOS` 回落、3 条 `GFWF` 读取失败），等于以「无 `agdpmod=pikera`、无 `-wegnoigpu`」的状态裸奔——必然黑屏。
 4. **`NVRAM → Delete` 中的 `boot-args`**：把「写入失败」放大成「参数全丢」。`Add` 每次启动本来就重写同一串值，这条 Delete 没有存在必要。**已于 2026-11-05 移除。**
+5. **未知第二块 VGA（`4c54:5006`，Slot-1，`No Kext Loaded`）干扰 primary display 判定**：低概率，但代价极低可验证。
 
-**待验证的修改**（逐项单独验证，每项一次改动）：
+> **已降级的假设**：
+> - ~~4 条 display pipe 分配竞态~~ —— 只接 HD270 单屏时同样犯病，与显示器数量无关。
+> - ~~第二阶段 framebuffer 交接失败~~ —— 应用 `gfxrst=4` 后仍偶发，该层不足以单独解释。
 
-| 顺序 | 修改 | 状态 | 风险 | 目的 |
+**待验证的实验与修改**（逐项单独验证，A/B 两个零成本对照优先）：
+
+| 顺序 | 实验 / 修改 | 状态 | 风险 | 目的 |
 | --- | --- | --- | --- | --- |
-| 1 | `boot-args` 追加 `gfxrst=4` | **✅ 2026-11-05 已应用** | 极低 | WhateverGreen 官方参数：*Disable framebuffer init interaction during 2nd boot stage* |
-| 2 | 从 `NVRAM → Delete` 移除 `boot-args` | **✅ 2026-11-05 已应用** | 零 | 关闭「参数全丢」窗口 |
-| 3 | `DevirtualiseMmio` 改 `false` | 待定 | 中 | 验证 NVRAM 写入是否转稳 |
-| 4 | 4K 屏临时降到 60Hz | 待定 | 零 | 单独验证 DSC / 带宽是否为诱因 |
+| **A** | **只接 HD270 单屏**，开关机 8～10 次 | **✅ 已观测：仍偶发黑屏、进不去系统** | 零 | 确认故障与显示器数量无关 |
+| **B** | **只接 DELL 单屏**（拔掉 HD270），同样 8～10 次 | **下一步（首选）** | 零 | 区分「HD270 专属」还是「全局」：不犯 ⇒ 锁定 HD270；仍犯 ⇒ 与屏无关，直接做 E |
+| C | HD270 换到 RX 6600 的另一路 DP，或改用 HDMI，并换线 | 待定 | 零 | 排除 connector 与线材 |
+| D | 降低 HD270 链路负载：分辨率降 1920×1080@60，或 `boot-args` 加 `-rad24` 强制 24-bit 色深 | 待定 | 低 | 验证 30-bit（30bpp）/ 链路带宽是否为诱因 |
+| E | `DevirtualiseMmio` 改 `false` | 待定 | 中 | 验证 NVRAM 写入是否转稳 |
+| F | `boot-args` 追加 `gfxrst=4` | **✅ 2026-11-05 已应用（无效）** | 极低 | WhateverGreen：*Disable framebuffer init interaction during 2nd boot stage* |
+| G | 从 `NVRAM → Delete` 移除 `boot-args` | **✅ 2026-11-05 已应用** | 零 | 关闭「参数全丢」窗口 |
 
-`gfxrst=4` 无效时依次试 `gfxrst=1`（*Prefer drawing Apple logo at 2nd boot stage instead of framebuffer copying*）与 `-rad24`（强制 24-bit 色深）。
+`gfxrst=4` 无效后仍可试 `gfxrst=1`（*Prefer drawing Apple logo at 2nd boot stage instead of framebuffer copying*）；`-rad24` 已并入 D。
 
 **应急处理**：
 
 | 场景 | 操作 |
 | --- | --- |
 | 黑屏但系统在跑 | 盲打密码回车；登录后仍无画面，则 SSH 进去执行 `sudo launchctl kickstart -k system/com.apple.WindowServer` |
+| 怀疑是 `gfxrst=4` 引起的 | 回滚到改前备份：`cp /Volumes/EFI/EFI/OC/config.plist.bak-20261105-040421 /Volumes/EFI/EFI/OC/config.plist`（该备份为「已移除 Delete、未加 `gfxrst`」状态；`config.plist.bak-20261105-040314` 是最初原始状态） |
 | 现场取证 | 记下 `-v` 最后一行停在何处——`EXITBS:START` 之后的内核输出**不会**写进 OpenCore 日志，事后翻日志看不到 |
 
 ## 故障恢复
