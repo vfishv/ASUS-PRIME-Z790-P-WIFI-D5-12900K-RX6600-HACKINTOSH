@@ -43,7 +43,7 @@ macOS **Sequoia 15.7.9 (24G830)** · OpenCore **1.0.8** · SMBIOS **MacPro7,1**
 | OpenCore | 1.0.8（**RELEASE 版**，`OpenCore.efi` 626,688 B ≈ 612 KB，与官方发布包 MD5 一致） |
 | SMBIOS 机型 | MacPro7,1 |
 | 引导界面 | OpenCanopy 图形界面，主题 `chris1111\Flavours-OSX26`（`PickerAttributes = 145`，启用 content flavour） |
-| 引导超时 | 3 秒，显示辅助项（`HideAuxiliary = false`） |
+| 引导超时 | 5 秒，显示辅助项（`HideAuxiliary = false`） |
 | SIP | 部分放行，`csr-active-config = 0x0803` |
 | SecureBootModel | Disabled（未启用 Apple 安全启动） |
 | 处理器显示名 | `Intel(R) Core(TM) i9-12900K`（`ProcessorType = 3841` + RestrictEvents，见「CPU 名称显示」） |
@@ -172,7 +172,7 @@ EFI/
 **boot-args**
 
 ```
--v keepsyms=1 agdpmod=pikera gfxrst=4 debug=0x100 -wegnoigpu e1000=0 swd_panic=1 -lilubetaall revcpu=1
+-v keepsyms=1 agdpmod=pikera gfxrst=4 debug=0x100 -wegnoigpu e1000=0 swd_panic=1 npci=0x2000 -lilubetaall revcpu=1
 ```
 
 | 参数 | 含义 |
@@ -185,10 +185,25 @@ EFI/
 | `-wegnoigpu` | 禁用核显输出 |
 | `e1000=0` | 避免 Intel 网卡驱动抢占 |
 | `swd_panic=1` | 看门狗触发时输出 panic |
+| `npci=0x2000` | 端口式（`0xCF8/0xCFC`）访问 PCI 配置空间，老平台遗留参数。**本板不需要，且是黑屏首要嫌疑，但至今仍未被移除**（见下方核对记录） |
 | `-lilubetaall` | 让 Lilu 及插件在非原生支持的 macOS 版本上加载 |
 | `revcpu=1` | 允许 RestrictEvents 改写 CPU 品牌串（名称本身走 NVRAM，见下节） |
 
-> **已移除（2026-11-05）**：`npci=0x2000`。它让内核走端口式（`0xCF8/0xCFC`）PCI 配置空间访问，是给卡在 `PCI Configuration Begin` 的老平台用的遗留参数。本板 Above 4G Decoding 开启、设备 BAR 落在 4GB 以上，此参数属于多余负担，且**可能造成 PCI 枚举随机失败**——若 GPU 某次没被枚举到，表现即为黑屏且无声音。详见「间歇性开机黑屏」实验 H。
+> **勘误（2026-11-05 12:07）：`npci=0x2000` 从未被移除。**
+>
+> 早前版本此处写「已移除」，与实况不符——仓库 `config.plist` 与实机 `nvram boot-args` **两处都仍带该参数**。它让内核走端口式（`0xCF8/0xCFC`）PCI 配置空间访问，是给卡在 `PCI Configuration Begin` 的老平台用的遗留参数。本板 Above 4G Decoding 开启、设备 BAR 落在 4GB 以上，此参数属于多余负担，且**可能造成 PCI 枚举随机失败**——若 GPU 某次没被枚举到，表现即为黑屏且无声音。**实验 H 至今未执行**，详见「间歇性开机黑屏」。
+
+**2026-11-05 12:07 环境核对（`nvram boot-args` 与仓库 `config.plist` 双读）**
+
+| 参数 | 仓库 `config.plist` | 实机 NVRAM（12:07） | 实机 NVRAM（11:59，同一启动会话） |
+| --- | --- | --- | --- |
+| `gfxrst=4` | ✅ 有 | ✅ 有 | ❌ **没有** |
+| `npci=0x2000` | ✅ 有 | ✅ 有 | ✅ 有 |
+
+- 本次启动时间 **06:30:26**（`sysctl kern.boottime`），11:59 → 12:07 之间**未重启**。
+- ⇒ NVRAM 里的 `gfxrst=4` 是 11:59 之后**被手工写入**的，不是引导器从 `config.plist` 写入的。
+- ⇒ **06:30 那次引导所用的 ESP `config.plist` 不含 `gfxrst=4`**，与仓库那份不一致（`boot-args` 之外的差异因 ESP 未挂载，尚未核对）。
+- 结论两条：① 凡以「已应用 `gfxrst=4`」为前提的黑屏观测，前提不成立，需重做；② `npci=0x2000` 一直是启用的，实验 H 等于没做。
 
 **Booter → Quirks（关键项）**
 
@@ -323,7 +338,7 @@ macOS 对未被原生支持的 CPU 一律显示「未知」。本机通过三处
 
 1. 开机到登录界面时显示器失联、**黑屏**。判断依据：盲打回车能听到 macOS 的密码错误提示音——说明 `loginwindow` 已在运行、键盘与音频子系统正常，唯独显示输出丢失。
 2. 偶尔 `-v` 白字刷过之后直接黑屏，不再出画面。
-3. **2026-11-05 追加观测**：应用 `gfxrst=4` 并重启后**仍偶发**。
+3. **2026-11-05 追加观测**：应用 `gfxrst=4` 并重启后**仍偶发**。**⚠️ 2026-11-05 12:07 复核：该轮引导所用 ESP 上实际没有 `gfxrst=4`（NVRAM 直到 11:59 之后才出现），此条前提不成立，见实验 F。**
 4. **2026-11-05 关键观测**：**只接 HD270（2560×1440@59.97Hz）一台显示器时，同样会偶发黑屏、进不去系统。** 单屏也犯 ⇒ 与「双屏把 display pipe 占满」无关，故障不依赖显示器数量。这一条把排查方向从「多屏资源竞争」拉回到「单路 framebuffer / connector 初始化」。
 5. **2026-11-05 追加观测（覆盖面扩大）**：**无论单独接哪一台显示器（HD270 或 DELL U2725QE），都偶发进不去系统**；且存在两种严重度——① 能进登录界面、盲打回车有密码错误提示音；② **黑屏且连密码错误声都没有**。后者说明系统没走到 `loginwindow`，甚至键盘/音频都没起来，故障点比「显示输出丢失」更早。
 6. **2026-11-05 追加观测（排除第二块显卡）**：**Windows 专用那张 `4c54:5006` 是否插着，表现完全一样；此前只装 RX 6600 单卡时同样偶发。** 该卡与故障无关，可从嫌疑中剔除。
